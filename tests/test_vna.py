@@ -147,7 +147,7 @@ class Tests(unittest.TestCase):
             ":SENS1:SWE:POIN?": "2", ":SENS1:BAND?": "1000", ":SOUR1:POW?": "-30",
             ":SENS1:CORR:STAT?": "0", ":OUTP?": "1", ":CALC1:PAR1:DEF?": "S21",
             ":SENS1:AVER:STAT?": "0", ":SENS1:SWE:TYPE?": "LIN",
-            ":SYST:ERR?": '0,"No error"', "*OPC?": "1",
+            ":SYST:ERR?": '0,"No error"', "*OPC?": "+1",
             ":SENS1:FREQ:DATA?": "1000000000,4000000000", ":CALC1:DATA:SDAT?": "1,0,0,1",
         }
         server = Server(lambda c: replies.get(c))

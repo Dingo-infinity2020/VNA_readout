@@ -15,7 +15,7 @@ import time
 from datetime import datetime, timezone
 from uuid import uuid4
 
-VERSION = "0.1.0"
+VERSION = "0.1.1"
 
 
 def utc():
@@ -197,7 +197,7 @@ class SCPI:
         started, clock = utc(), time.monotonic()
         self.write(":INIT1:CONT ON")
         self.write(":TRIG:SING")
-        if self.query("*OPC?") != "1":
+        if number(self.query("*OPC?")) != 1:
             raise RuntimeError("Sweep did not confirm completion")
         self.write(":INIT1:CONT OFF")
         frequency = [number(x) for x in self.query(":SENS1:FREQ:DATA?").split(",")]
