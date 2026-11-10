@@ -3,12 +3,43 @@ Option Explicit
 
 ' E5071C internal 32-bit VBA. Source only; compile/save as .vba on instrument.
 ' No TCP/IP, VISA, Python or Mac connection is used by this module.
-' v0.2.0: UNCALIBRATED forward S21, manually configured fixed frequency band.
+' v0.2.1: UNCALIBRATED forward S21, manually configured fixed frequency band.
 Private Declare Sub Sleep Lib "kernel32" (ByVal milliseconds As Long)
 Private Declare Function GetAsyncKeyState Lib "user32" (ByVal key As Long) As Integer
 Private Declare Function GetTickCount Lib "kernel32" () As Long
 Private mFolder As String
 Private mFSO As Object
+Private mAcceptance As Boolean
+
+' Reads the configured measurement and exercises COM getters without RF changes.
+Public Sub ValidateOnly()
+    Dim file As String, h As Integer, result As String
+    On Error GoTo ValidationFailed
+    result = "VALIDATION_PASS " & Settings()
+    CheckErrors
+    GoTo ValidationWrite
+ValidationFailed:
+    result = "VALIDATION_FAIL " & CStr(Err.Number) & " " & Err.Description
+ValidationWrite:
+    On Error GoTo ValidationDiskFailed
+    file = "D:\KID_DATA\validate_" & Format$(Now, "yyyymmdd_hhnnss") & ".txt"
+    h = FreeFile
+    Open file For Output As #h
+    Print #h, result
+    Close #h
+    Exit Sub
+ValidationDiskFailed:
+    On Error Resume Next
+    Close
+End Sub
+
+' Bounded unattended acceptance: exactly 3 sweeps at the current verified settings.
+' Intended only for the known passive-filter fixture, not a KID production run.
+Public Sub Acceptance3()
+    mAcceptance = True
+    Main
+    mAcceptance = False
+End Sub
 
 Private Function Num(ByVal x As Double) As String
     ' Str uses a dot decimal separator; Trim removes its leading space.
@@ -89,31 +120,42 @@ Public Sub Main()
     On Error GoTo Failed
     mFolder = ""
     Set mFSO = CreateObject("Scripting.FileSystemObject")
-    root = InputBox("Existing USB destination folder, e.g. E:\KID_DATA (create it in Explorer first).", "USB recorder", "")
-    If Len(root) = 0 Then Exit Sub
+    If mAcceptance Then
+        root = "D:\KID_DATA"
+    Else
+        root = InputBox("Existing data folder, e.g. D:\KID_DATA (create it in Explorer first).", "VNA recorder", "")
+        If Len(root) = 0 Then Exit Sub
+    End If
     If Not mFSO.FolderExists(root) Then Err.Raise vbObjectError + 215, , "Destination folder does not exist."
     If Not mFSO.GetDrive(mFSO.GetDriveName(root)).IsReady Then Err.Raise vbObjectError + 216, , "Destination drive is not ready."
-    answer = InputBox("Interval between sweep starts in seconds (at least 5).", "USB recorder", "60")
-    If Len(answer) = 0 Then Exit Sub
-    interval = CDbl(answer)
+    If mAcceptance Then
+        interval = 5
+        count = 3
+    Else
+        answer = InputBox("Interval between sweep starts in seconds (at least 5).", "VNA recorder", "60")
+        If Len(answer) = 0 Then Exit Sub
+        interval = CDbl(answer)
+        answer = InputBox("Number of sweeps (1-100000).", "VNA recorder", "60")
+        If Len(answer) = 0 Then Exit Sub
+        If CDbl(answer) <> Fix(CDbl(answer)) Then Err.Raise vbObjectError + 218, , "Sweep count must be an integer."
+        count = CLng(answer)
+    End If
     If interval < 5 Or interval > 86400 Then Err.Raise vbObjectError + 217, , "Interval must be 5-86400 seconds."
-    answer = InputBox("Number of sweeps (1-100000).", "USB recorder", "60")
-    If Len(answer) = 0 Then Exit Sub
-    If CDbl(answer) <> Fix(CDbl(answer)) Then Err.Raise vbObjectError + 218, , "Sweep count must be an integer."
-    count = CLng(answer)
     If count < 1 Or count > 100000 Then Err.Raise vbObjectError + 219, , "Sweep count outside range."
     snapshot = Settings()
     CheckErrors
-    If MsgBox("UNCALIBRATED forward S21. Check chain and source power before enabling RF." & vbCrLf & _
+    If Not mAcceptance Then
+      If MsgBox("UNCALIBRATED forward S21. Check chain and source power before enabling RF." & vbCrLf & _
               "CSV settings: points,start_Hz,stop_Hz,IFBW_Hz,power_dBm,calibration" & vbCrLf & snapshot & vbCrLf & _
               "Destination: " & root & vbCrLf & "Hold Esc to stop after the current sweep. Start?", vbYesNo, "USB recorder") <> vbYes Then Exit Sub
+    End If
     folder = root & "\RUN_" & Format$(Now, "yyyymmdd_hhnnss")
     If mFSO.FolderExists(folder) Then Err.Raise vbObjectError + 220, , "Run folder already exists; wait a second and start again."
     mFSO.CreateFolder folder
     mFolder = folder
     h = FreeFile
     Open folder & "\run_info.txt" For Output As #h
-    Print #h, "VNA_USB_RECORDER_VERSION=0.2.0"
+    Print #h, "VNA_USB_RECORDER_VERSION=0.2.1"
     Print #h, "IDENTITY=" & SCPI.IEEE4882.IDN
     Print #h, "TIME_BASIS=VNA_LOCAL_UNVERIFIED"
     Print #h, "CALIBRATION=UNCALIBRATED"
@@ -205,10 +247,10 @@ Finished:
     Else
         AppendLog "STOPPED_BY_OPERATOR " & CStr(complete)
     End If
-    MsgBox CStr(complete) & " sweeps saved. RF OFF confirmed." & vbCrLf & folder, vbOKOnly, "USB recorder"
+    If Not mAcceptance Then MsgBox CStr(complete) & " sweeps saved. RF OFF confirmed." & vbCrLf & folder, vbOKOnly, "USB recorder"
     Exit Sub
 Failed:
-    message = "STOP: " & Err.Description & ". No automatic retry."
+    message = "STOP: " & CStr(Err.Number) & " " & Err.Description & ". No automatic retry."
     On Error Resume Next
     Close
     If armed Then
@@ -220,6 +262,13 @@ Failed:
             message = message & vbCrLf & "RF OFF confirmed."
         End If
     End If
-    If Len(mFolder) > 0 Then AppendLog message
-    MsgBox message, vbCritical, "USB recorder"
+    If Len(mFolder) > 0 Then
+        AppendLog message
+    ElseIf mAcceptance Then
+        h = FreeFile
+        Open "D:\KID_DATA\acceptance_fail_" & Format$(Now, "yyyymmdd_hhnnss") & ".txt" For Output As #h
+        Print #h, message
+        Close #h
+    End If
+    If Not mAcceptance Then MsgBox message, vbCritical, "USB recorder"
 End Sub

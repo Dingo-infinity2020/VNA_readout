@@ -8,7 +8,7 @@ import re
 from vna import Recorder, number, validate_data
 
 
-def import_usb(source, out="data", sample="USB_KID_RUN"):
+def import_usb(source, out="data", sample="USB_KID_RUN", storage_origin="unknown"):
     source = Path(source)
     manifest = source / "manifest.csv"
     with manifest.open(encoding="utf-8-sig", newline="") as stream:
@@ -17,7 +17,9 @@ def import_usb(source, out="data", sample="USB_KID_RUN"):
         raise ValueError("USB manifest contains no committed sweeps")
     info = (source / "run_info.txt").read_text(encoding="utf-8-sig")
     status = (source / "status.log").read_text(encoding="utf-8-sig") if (source / "status.log").exists() else ""
-    recorder = Recorder(out, {"source": "VNA_USB", "sample": sample,
+    if storage_origin not in ("unknown", "usb", "internal_d"):
+        raise ValueError("Unknown storage origin")
+    recorder = Recorder(out, {"source": "VNA_NATIVE", "sample": sample, "storage_origin": storage_origin,
                              "source_directory_name": source.name, "native_run_info": info,
                              "time_basis": "VNA_LOCAL_UNVERIFIED"})
     seen = set()
@@ -43,7 +45,8 @@ def import_usb(source, out="data", sample="USB_KID_RUN"):
             pairs = [number(r[k]) for r in raw for k in ("s21_real", "s21_imag")]
             rows = validate_data(frequency, pairs, profile)
             recorder.save(index, rows, {
-                "source": "VNA_USB", "profile": profile, "source_csv": name,
+                "source": "VNA_NATIVE", "storage_origin": storage_origin,
+                "profile": profile, "source_csv": name,
                 "source_csv_sha256_at_import": hashlib.sha256(path.read_bytes()).hexdigest(),
                 "source_hash_note": "Computed at import, not a checksum verified on the VNA",
                 "vna_started_local": entry["started_local"], "vna_ended_local": entry["ended_local"],

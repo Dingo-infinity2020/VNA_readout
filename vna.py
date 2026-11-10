@@ -15,7 +15,7 @@ import time
 from datetime import datetime, timezone
 from uuid import uuid4
 
-VERSION = "0.2.0"
+VERSION = "0.2.1"
 ROOT = Path(__file__).resolve().parent
 
 
@@ -420,6 +420,7 @@ def main():
     command.add_argument("directory", type=Path)
     command.add_argument("--out", default="data")
     command.add_argument("--sample", default="USB_KID_RUN")
+    command.add_argument("--storage-origin", choices=("unknown", "usb", "internal_d"), default="unknown")
     for name in ("report", "verify", "note"):
         command = sub.add_parser(name)
         command.add_argument("directory", type=Path)
@@ -469,7 +470,7 @@ def main():
         elif args.command == "import-usb":
             from usb_import import import_usb
             from report import create_report
-            directory = import_usb(args.directory, args.out, args.sample)
+            directory = import_usb(args.directory, args.out, args.sample, args.storage_origin)
             print("Imported:", directory)
             print("Report:", create_report(directory))
         else:
