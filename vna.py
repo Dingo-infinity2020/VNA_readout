@@ -15,7 +15,8 @@ import time
 from datetime import datetime, timezone
 from uuid import uuid4
 
-VERSION = "0.1.1"
+VERSION = "0.2.0"
+ROOT = Path(__file__).resolve().parent
 
 
 def utc():
@@ -46,7 +47,8 @@ def number(value):
 def load_profile(path):
     profile = json.loads(Path(path).read_text(encoding="utf-8"))
     allowed = {"sample", "start_hz", "stop_hz", "points", "ifbw_hz",
-               "power_dbm", "calibration", "cal_id", "notes"}
+               "power_dbm", "calibration", "cal_id", "notes", "dut_kind",
+               "max_power_dbm", "chain_reviewed"}
     if set(profile) - allowed:
         raise ValueError(f"Unknown profile keys: {sorted(set(profile) - allowed)}")
     for key in ("start_hz", "stop_hz", "ifbw_hz", "power_dbm"):
@@ -60,6 +62,15 @@ def load_profile(path):
         raise ValueError("ifbw_hz must be 10–10000 Hz")
     if not -55 <= profile["power_dbm"] <= -20:
         raise ValueError("v0.1 permits source power only from -55 to -20 dBm; not a KID safety guarantee")
+    kind = profile.get("dut_kind", "passive")
+    if kind not in ("passive", "kid"):
+        raise ValueError("dut_kind must be passive or kid")
+    if kind == "kid":
+        if profile.get("chain_reviewed") is not True:
+            raise ValueError("KID profile requires a reviewed input/output power budget")
+        limit = number(profile["max_power_dbm"])
+        if not -55 <= limit <= -20 or profile["power_dbm"] > limit:
+            raise ValueError("KID source power exceeds the reviewed max_power_dbm")
     if profile["calibration"] not in ("off", "manual_forward"):
         raise ValueError("calibration must be off or manual_forward")
     if not str(profile.get("sample", "")).strip():
@@ -109,7 +120,8 @@ class SCPI:
             line, _, rest = self.buffer.partition(b"\n")
             self.buffer = bytearray(rest)
             return line.decode("ascii").strip()
-        except (OSError, ValueError):
+        except BaseException:
+            # An interrupted query may leave unread bytes. Never trust its next reply.
             self.usable = False
             raise
 
@@ -194,6 +206,8 @@ class SCPI:
 
     def acquire(self, profile):
         before = self.matches(profile)
+        if number(before["rf_output"]) != 1:
+            raise ValueError("RF must be ON before a measurement")
         started, clock = utc(), time.monotonic()
         self.write(":INIT1:CONT ON")
         self.write(":TRIG:SING")
@@ -266,6 +280,8 @@ class Recorder:
 
     def save(self, index, rows, metadata):
         stem = f"sweep_{index:06d}"
+        if any((self.directory / (stem + suffix)).exists() for suffix in (".csv", ".json")):
+            raise FileExistsError("Refusing to overwrite an existing sweep")
         output = io.StringIO(newline="")
         writer = csv.writer(output)
         writer.writerow(["frequency_hz", "s21_real", "s21_imag", "magnitude_db", "phase_deg"])
@@ -276,32 +292,43 @@ class Recorder:
         atomic(self.directory / (stem + ".csv"), text)
         digest = hashlib.sha256(text.encode("utf-8")).hexdigest()
         atomic(self.directory / (stem + ".json"), json_text({
-            "schema_version": 1, "sweep_id": index, "csv_sha256": digest, **metadata}))
+            **metadata, "schema_version": 1, "sweep_id": index, "csv_sha256": digest,
+            "software_version": VERSION}))
         self.event("committed", {"sweep_id": index, "csv": stem + ".csv", "sha256": digest})
         # The preview is derived; failure here leaves the committed raw CSV/JSON intact.
         atomic(self.directory / (stem + ".svg"), svg_plot(rows, metadata.get("source", "UNKNOWN")))
         return self.directory / (stem + ".csv")
 
 
-def demo_rows(profile):
+def demo_rows(profile, kind="filter", index=0):
     n = profile["points"]
     rows = []
     for i in range(n):
         f = profile["start_hz"] + (profile["stop_hz"] - profile["start_hz"]) * i/(n-1)
-        magnitude = 0.8 / math.sqrt(1 + ((f-2.5e9)/2.5e8)**8)
         phase = -2*math.pi*f*2e-9
-        rows.append((f, magnitude*math.cos(phase), magnitude*math.sin(phase)))
+        if kind == "kid":
+            f0 = (profile["start_hz"] + profile["stop_hz"])/2 + index*200
+            z = 0.8 * (1 - 0.7/(1 + 2j*50000*(f/f0-1)))
+        else:
+            z = 0.8 / math.sqrt(1 + ((f-2.5e9)/2.5e8)**8)
+        z *= complex(math.cos(phase), math.sin(phase))
+        rows.append((f, z.real, z.imag))
     return rows
 
 
 def run(args):
     if args.command == "demo":
         profile = load_profile(args.profile)
+        if args.kind == "kid":
+            profile = {**profile, "sample": "SIMULATED_KID", "start_hz": 2.999e9, "stop_hz": 3.001e9}
         recorder = Recorder(args.out, {"version": VERSION, "source": "SIMULATED", "profile": profile})
-        path = recorder.save(1, demo_rows(profile), {"source": "SIMULATED", "profile": profile,
-                                                  "calibration_status": "SIMULATED", "utc": utc()})
-        print("SIMULATED data:", path)
-        return
+        for index in range(args.count):
+            recorder.save(index+1, demo_rows(profile, args.kind, index),
+                          {"source": "SIMULATED", "profile": profile,
+                           "calibration_status": "SIMULATED", "started_utc": utc()})
+        recorder.event("finished", {"sweeps": args.count, "source": "SIMULATED"})
+        print("SIMULATED data:", recorder.directory)
+        return recorder.directory
     if not args.host:
         raise ValueError("Supply --host IP or set VNA_HOST")
     profile = None if args.command == "check" else load_profile(args.profile)
@@ -351,7 +378,10 @@ def run(args):
         recorder.event("finished", {"sweeps": count})
     except BaseException as error:
         if recorder:
-            recorder.event("stopped", {"reason": str(error), "automatic_retry": False})
+            try:
+                recorder.event("stopped", {"reason": repr(error), "automatic_retry": False})
+            except OSError:
+                print("Could not write stop event; check disk.", file=sys.stderr)
         raise
     finally:
         if connection:
@@ -359,15 +389,19 @@ def run(args):
             if modified:
                 try:
                     connection.rf_off()
-                    if recorder:
-                        recorder.event("rf_off_confirmed", {})
                     print("RF OFF confirmed.", flush=True)
+                    if recorder:
+                        try:
+                            recorder.event("rf_off_confirmed", {})
+                        except OSError:
+                            print("RF OFF confirmed but log could not be saved.", file=sys.stderr)
                 except Exception as error:
                     off_error = error
                     print(f"RF OFF NOT CONFIRMED: {error}. Check front panel.", file=sys.stderr)
             connection.close()
             if off_error and sys.exc_info()[0] is None:
                 raise RuntimeError("Acquisition saved, but RF OFF was not confirmed") from off_error
+    return recorder.directory if recorder else None
 
 
 def positive(value):
@@ -380,7 +414,18 @@ def positive(value):
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--version", action="version", version=VERSION)
-    sub = parser.add_subparsers(dest="command", required=True)
+    sub = parser.add_subparsers(dest="command")
+    sub.add_parser("menu", help="中文操作菜单")
+    command = sub.add_parser("import-usb", help="Import a completed native VNA USB run (offline)")
+    command.add_argument("directory", type=Path)
+    command.add_argument("--out", default="data")
+    command.add_argument("--sample", default="USB_KID_RUN")
+    for name in ("report", "verify", "note"):
+        command = sub.add_parser(name)
+        command.add_argument("directory", type=Path)
+        if name == "note":
+            command.add_argument("--temperature-k", type=number)
+            command.add_argument("--notes", required=True)
     for name in ("check", "capture", "monitor", "demo"):
         command = sub.add_parser(name)
         if name != "demo":
@@ -388,7 +433,7 @@ def main():
             command.add_argument("--serial", help="Optional expected instrument serial number")
             command.add_argument("--timeout", type=positive, default=120)
         if name != "check":
-            command.add_argument("--profile", default="configs/filter.json")
+            command.add_argument("--profile", default=str(ROOT / "configs/filter.json"))
             command.add_argument("--out", default="data")
         if name in ("capture", "monitor"):
             command.add_argument("--allow-rf", action="store_true")
@@ -397,11 +442,41 @@ def main():
         if name == "monitor":
             command.add_argument("--interval", type=positive, default=60)
             command.add_argument("--count", type=int, default=60)
+        if name == "demo":
+            command.add_argument("--kind", choices=("filter", "kid"), default="filter")
+            command.add_argument("--count", type=int, default=3)
     args = parser.parse_args()
-    if args.command == "monitor" and args.count < 1:
+    if args.command in ("monitor", "demo") and args.count < 1:
         parser.error("--count must be at least 1")
     try:
-        run(args)
+        if args.command in (None, "menu"):
+            from menu import menu
+            menu()
+        elif args.command in ("verify", "report"):
+            from report import inspect_run, create_report
+            if args.command == "verify":
+                inspection = inspect_run(args.directory)
+                print(json_text(inspection))
+                return 0 if inspection["valid"] else 1
+            print("Report:", create_report(args.directory))
+        elif args.command == "note":
+            if not (args.directory / "run.json").is_file():
+                raise ValueError("Not a run directory")
+            recorder = Recorder.__new__(Recorder)
+            recorder.directory = args.directory
+            recorder.event("manual_note", {"temperature_k": args.temperature_k, "notes": args.notes})
+            print("Timestamped manual note saved (not live temperature acquisition).")
+        elif args.command == "import-usb":
+            from usb_import import import_usb
+            from report import create_report
+            directory = import_usb(args.directory, args.out, args.sample)
+            print("Imported:", directory)
+            print("Report:", create_report(directory))
+        else:
+            directory = run(args)
+            if directory:
+                from report import create_report
+                print("Report:", create_report(directory))
     except KeyboardInterrupt:
         print("Stopped by user. Saved sweeps retained.", file=sys.stderr)
         return 130

@@ -6,7 +6,7 @@
 
 ## 当前状态
 
-v0.1.1：已实现只读检查、单次扫频、定时重复采集、CSV/JSON 保存及 SVG 曲线预览。兼容固件完成回复 `1` 和 `+1`。
+v0.2.0：已增加中文菜单、离线 HTML 报告、文件校验、U 盘导入，以及待实机编译验证的 VNA 内部宏源码。原有功能包括只读检查、单次扫频、定时重复采集、CSV/JSON 保存及 SVG 曲线预览。兼容固件完成回复 `1` 和 `+1`。
 
 - 离线协议/保存测试通过；演示数据明确标记为 SIMULATED。
 - 2026-11-10：真实 E5071C 的身份与当前设置只读查询通过。
@@ -15,7 +15,39 @@ v0.1.1：已实现只读检查、单次扫频、定时重复采集、CSV/JSON �
 - **校准后的采集和 Ctrl+C/断网时的实际行为仍待实测。** 此处无源未校准结果不等于 KID 或校准精度验收通过。
 - 暂不包含自动找峰、Q 拟合、温控器连接或噪声 PSD；先把采集和保存做好。
 
-## 三步开始
+## 推荐使用方式：VNA 自主采集
+
+**当前先用未校准模式，不要求先做校准。** 为满足 Mac 断联后仍能工作，主路径改为：
+
+> VNA 内部 VBA 宏 → U 盘或 VNA 用户数据盘 → 实验后由 Mac 导入并分析。
+
+- [U 盘/内部数据盘独立采集说明](docs/U盘独立采集.md)
+- [内部宏源代码 Module1.bas](native/Module1.bas)（不是已编译的 .vba 文件）
+- 宏的编译、介质写入和断网继续采集仍待仪器实测；本机网络采集已通过的结果不能替代这些验证。
+- 只有把采集循环运行在 VNA 内部，Mac 断联才不影响后续调度。下面的 Python 网络采集始终依赖电脑运行。
+
+## 中文菜单与离线分析
+
+Mac 可双击 `启动.command`，Windows 可运行 `start.bat`，也可以：
+
+```bash
+python3 vna.py
+```
+
+菜单包含连接检查、单次采集、降温/暗测试、离线演示、报告及 U 盘导入。只有明确选择采集并输入 START 才开启 RF；演示、报告和导入不连接仪器。本地 IP 记在被 Git 忽略的 connection.local.json 中。
+
+```bash
+python3 vna.py demo --kind kid
+python3 vna.py report data/某次实验目录
+python3 vna.py verify data/某次实验目录
+python3 vna.py import-usb /Volumes/MY_USB/KID_DATA/RUN_日期_时间 --sample sampleA
+```
+
+每次正常完成后生成 report.html，可离线查看幅度、包裹相位、复平面叠图及逐次摘要 summary.csv。报告检查提交记录、数据形状及 SHA256，排除未提交文件；原始 CSV 不改动。摘要中的最小值频率只是采样点最小值，不是自动谐振拟合。
+
+降温与暗测试的未校准配置模板在 configs/cooldown.example.json、configs/dark.example.json，需填实际频段和核算过的源功率；模板中空功率不能直接执行。
+
+## Mac 网络采集：三步开始
 
 安装 Python 后，下载本仓库 ZIP 并解压，或：
 
@@ -65,6 +97,8 @@ python3 vna.py monitor --host 192.168.50.2 --profile configs/filter.json --inter
 | `sweep_000001.json` | 起止时间、实际设置、校准标记、数据 SHA256 |
 | `sweep_000001.svg` | 可用浏览器打开的幅度预览 |
 | `events.jsonl` | 每次触发请求、提交、停止原因及 RF 关闭确认 |
+
+正常结束后还有 report.html 和 summary.csv。
 
 CSV 是主数据，JSON 是配套记录；以 `events.jsonl` 的 `committed` 为完整扫频标志。只有 CSV、没有匹配 JSON/提交记录的文件不能当作完整数据。`.tmp` 是未完成文件，不用于分析。预览失败不会覆盖已经提交的数据。
 

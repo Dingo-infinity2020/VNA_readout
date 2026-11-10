@@ -1,0 +1,14 @@
+{
+  "sample": "dark_REPLACE_SAMPLE",
+  "dut_kind": "kid",
+  "chain_reviewed": false,
+  "max_power_dbm": null,
+  "start_hz": 2999000000,
+  "stop_hz": 3001000000,
+  "points": 1601,
+  "ifbw_hz": 100,
+  "power_dbm": null,
+  "calibration": "off",
+  "cal_id": "UNCALIBRATED",
+  "notes": "Uncalibrated dark test. Set real band, reviewed chain budget and source power first. Suggested interval: 30 s."
+}
