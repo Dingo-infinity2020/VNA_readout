@@ -1,0 +1,11 @@
+{
+  "sample": "kid_example_not_ready",
+  "start_hz": 2999000000,
+  "stop_hz": 3001000000,
+  "points": 1601,
+  "ifbw_hz": 100,
+  "power_dbm": null,
+  "calibration": "manual_forward",
+  "cal_id": "REPLACE_WITH_CALIBRATION_ID",
+  "notes": "Example only: enter approved source power and actual resonator band after chain review. Manually configure and calibrate these exact settings first."
+}

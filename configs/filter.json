@@ -1,0 +1,11 @@
+{
+  "sample": "passive_filter",
+  "start_hz": 1000000000,
+  "stop_hz": 4000000000,
+  "points": 1601,
+  "ifbw_hz": 1000,
+  "power_dbm": -30,
+  "calibration": "off",
+  "cal_id": "UNCALIBRATED",
+  "notes": "Passive filter only. Disconnect the cryogenic/KID chain."
+}
