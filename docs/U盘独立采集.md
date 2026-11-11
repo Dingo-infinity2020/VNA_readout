@@ -6,7 +6,7 @@
 
 代码：[`native/Module1.bas`](../native/Module1.bas)，适配 E5071C 内部 32 位 VBA，保存未校准的正向复数 S21。
 
-**2026-11-10 更新：内部宏实际运行、D 盘写入及关闭控制 TCP 会话后的 3 次自主采集已通过。** [验收记录](D盘自主采集验收.md)；可直接加载的原生项目为 [`native/KIDRecorder_v021.vba`](../native/KIDRecorder_v021.vba)。
+**2026-11-10 更新：内部宏实际运行、D 盘写入及关闭控制 TCP 会话后的 3 次自主采集已通过。** [验收记录](D盘自主采集验收.md)；可直接加载的原生项目为 [`native/KIDRecorder_v022.vba`](../native/KIDRecorder_v022.vba)。
 
 可移动介质仍未就绪：仪器内部存储探针显示 G 为可移动盘但未就绪，C/D/E/F 为固定盘。当前优先保存到 `D:\KID_DATA`；不向 G、系统或校准分区写入。物理拔网线、长时间运行和可移动介质写入仍待独立验证。
 
@@ -19,7 +19,7 @@
 
 ## 2. 加载宏（首次一次性操作）
 
-**推荐：**仪器上已有 `D:\KID_DATA\KIDRecorder_v021_ready.vba`。直接从 Macro Setup → Load Project 加载，选择 Module1.Main；无需重新导入源文件。其他仪器可先复制仓库的 native/KIDRecorder_v021.vba 后加载。下面保留从源码导入的方法，供开发使用。
+**推荐：**仪器上已有 `D:\KID_DATA\KIDRecorder_v022_ready.vba`。直接从 Macro Setup → Load Project 加载，选择 Module1.Main；无需重新导入源文件。其他仪器可先复制仓库的 native/KIDRecorder_v022.vba 后加载。下面保留从源码导入的方法，供开发使用。
 
 
 `.bas` 是可读 VBA 源文件，**不是可以在 Macro Setup → Load Project 直接运行的 `.vba` 项目**。需要在仪器编辑器中导入并保存一次。
@@ -51,7 +51,7 @@
 
 ## 4. 启动和停止
 
-1. 运行宏后输入**已存在的保存目录**、间隔秒数和次数。第一次只做 3 次、间隔 5 秒。
+1. 运行宏后，目录框默认是 `D:\KID_DATA`，直接回车即可。清空或只输入空格后确认也使用默认目录；Cancel 退出。默认目录缺失会自动创建，自定义目录仍需已经存在。然后输入间隔秒数和次数，第一次只做 3 次、间隔 5 秒。
 2. 确认屏幕列出的实际频段、点数、IFBW 和源功率；点 Yes 后才由宏控制 RF 并开始采集。
 3. 每扫等待测量完成，读取实际频率数组和 Re/Im 数组，写 `.tmp`，关闭文件后重命名为 CSV，再追加 manifest 提交记录。每一次完整扫频都保存，不依赖截图。
 4. 降温默认每 60 秒一次，暗测试每 30 秒一次。扫频和保存较慢时留至少 20% 周期余量，不积压补扫。中间等待也在 VNA 内执行。
@@ -112,3 +112,9 @@ python3 vna.py import-usb /Volumes/MY_USB/KID_DATA/RUN_20261110_140000 --sample 
 - [测量完成等待](https://helpfiles.keysight.com/csg/e5071c/programming/command_reference/trigger/scpi_trigger_sequence_single.htm)
 - [频率与复数数据读取](https://helpfiles.keysight.com/csg/e5071c/programming/vba_programming/controlling_e5071c/reading_writing_measurement_data.htm)
 - [强制停止宏的行为](https://helpfiles.keysight.com/csg/e5071c/programming/vba_programming/operation_basics/stopping_a_vba_program.htm)
+
+## v0.2.2 默认目录更新（2026-11-11）
+
+新版已在仪器内部通过空白/空格、自定义路径、取消分支及目录创建的逻辑自检，没有调用 RF 或触发命令。更新前后均为 RF ON、Internal 触发、连续扫频 ON。这个自检覆盖目录逻辑和 VBA 运行兼容性，不等于人工点击每种输入框按钮的完整 UI 验收。
+
+可加载项目 SHA256：`acd33db39917217b3dcf8113dd1adf6e46900366d080dbe2568f1f6163e29c41`；文件 48,128 字节。历史 v0.2.1 项目保留供回退，新版主入口仍为 Module1.Main。

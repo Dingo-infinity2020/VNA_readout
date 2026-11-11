@@ -3,13 +3,57 @@ Option Explicit
 
 ' E5071C internal 32-bit VBA. Source only; compile/save as .vba on instrument.
 ' No TCP/IP, VISA, Python or Mac connection is used by this module.
-' v0.2.1: UNCALIBRATED forward S21, manually configured fixed frequency band.
+' v0.2.2: UNCALIBRATED forward S21, manually configured fixed frequency band.
+Private Const DEFAULT_DATA_ROOT As String = "D:\KID_DATA"
 Private Declare Sub Sleep Lib "kernel32" (ByVal milliseconds As Long)
 Private Declare Function GetAsyncKeyState Lib "user32" (ByVal key As Long) As Integer
 Private Declare Function GetTickCount Lib "kernel32" () As Long
 Private mFolder As String
 Private mFSO As Object
 Private mAcceptance As Boolean
+
+Private Function DestinationFromInput(ByVal value As String, ByVal cancelled As Boolean) As String
+    If cancelled Then Exit Function
+    DestinationFromInput = Trim$(value)
+    If Len(DestinationFromInput) = 0 Then DestinationFromInput = DEFAULT_DATA_ROOT
+    Do While Len(DestinationFromInput) > 3 And Right$(DestinationFromInput, 1) = "\"
+        DestinationFromInput = Left$(DestinationFromInput, Len(DestinationFromInput) - 1)
+    Loop
+End Function
+
+Private Sub EnsureDestination(ByVal root As String, ByVal allowCreate As Boolean)
+    If Not mFSO.FolderExists(root) Then
+        If Not allowCreate Then Err.Raise vbObjectError + 215, , "Custom destination folder does not exist."
+        mFSO.CreateFolder root
+    End If
+    If Not mFSO.GetDrive(mFSO.GetDriveName(root)).IsReady Then Err.Raise vbObjectError + 216, , "Destination drive is not ready."
+End Sub
+
+' Storage-only self-test; does not call any RF or measurement COM methods.
+Public Sub ValidateDefaultDirectory()
+    Dim folder As String, h As Integer, message As String
+    On Error GoTo DefaultFailed
+    Set mFSO = CreateObject("Scripting.FileSystemObject")
+    If DestinationFromInput("", False) <> DEFAULT_DATA_ROOT Then Err.Raise vbObjectError + 401, , "Blank input failed."
+    If DestinationFromInput("   ", False) <> DEFAULT_DATA_ROOT Then Err.Raise vbObjectError + 402, , "Whitespace input failed."
+    If DestinationFromInput("D:\custom", False) <> "D:\custom" Then Err.Raise vbObjectError + 403, , "Custom input failed."
+    If DestinationFromInput("", True) <> "" Then Err.Raise vbObjectError + 404, , "Cancel failed."
+    If StrPtr(vbNullString) <> 0 Then Err.Raise vbObjectError + 405, , "Null-string detection unsupported."
+    folder = DEFAULT_DATA_ROOT & "\default_probe_" & Format$(Now, "yyyymmdd_hhnnss")
+    EnsureDestination folder, True
+    h = FreeFile
+    Open folder & "\result.txt" For Output As #h
+    Print #h, "DEFAULT_DIRECTORY_PASS " & DEFAULT_DATA_ROOT
+    Print #h, "BLANK_WHITESPACE_CUSTOM_CANCEL_PASS"
+    Print #h, "DIRECTORY_CREATION_PASS"
+    Close #h
+    Exit Sub
+DefaultFailed:
+    message = "Default directory validation failed: " & Err.Description
+    On Error Resume Next
+    Close
+    MsgBox message, vbCritical
+End Sub
 
 ' Reads the configured measurement and exercises COM getters without RF changes.
 Public Sub ValidateOnly()
@@ -112,7 +156,7 @@ Private Sub OffAndVerify()
 End Sub
 
 Public Sub Main()
-    Dim root As String, folder As String, answer As String, snapshot As String
+    Dim root As String, folder As String, answer As String, snapshot As String, rawRoot As String
     Dim interval As Double, count As Long, k As Long, n As Long, j As Long, h As Integer
     Dim freq As Variant, z As Variant, startClock As String, endClock As String
     Dim file As String, target As String, complete As Long, armed As Boolean
@@ -121,13 +165,13 @@ Public Sub Main()
     mFolder = ""
     Set mFSO = CreateObject("Scripting.FileSystemObject")
     If mAcceptance Then
-        root = "D:\KID_DATA"
+        root = DEFAULT_DATA_ROOT
     Else
-        root = InputBox("Existing data folder, e.g. D:\KID_DATA (create it in Explorer first).", "VNA recorder", "")
+        rawRoot = InputBox("Data folder. Leave blank for " & DEFAULT_DATA_ROOT & ". Cancel exits.", "VNA recorder", DEFAULT_DATA_ROOT)
+        root = DestinationFromInput(rawRoot, StrPtr(rawRoot) = 0)
         If Len(root) = 0 Then Exit Sub
     End If
-    If Not mFSO.FolderExists(root) Then Err.Raise vbObjectError + 215, , "Destination folder does not exist."
-    If Not mFSO.GetDrive(mFSO.GetDriveName(root)).IsReady Then Err.Raise vbObjectError + 216, , "Destination drive is not ready."
+    EnsureDestination root, StrComp(root, DEFAULT_DATA_ROOT, vbTextCompare) = 0
     If mAcceptance Then
         interval = 5
         count = 3
@@ -155,7 +199,7 @@ Public Sub Main()
     mFolder = folder
     h = FreeFile
     Open folder & "\run_info.txt" For Output As #h
-    Print #h, "VNA_USB_RECORDER_VERSION=0.2.1"
+    Print #h, "VNA_USB_RECORDER_VERSION=0.2.2"
     Print #h, "IDENTITY=" & SCPI.IEEE4882.IDN
     Print #h, "TIME_BASIS=VNA_LOCAL_UNVERIFIED"
     Print #h, "CALIBRATION=UNCALIBRATED"

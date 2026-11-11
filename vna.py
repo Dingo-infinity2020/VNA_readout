@@ -15,7 +15,7 @@ import time
 from datetime import datetime, timezone
 from uuid import uuid4
 
-VERSION = "0.2.1"
+VERSION = "0.2.2"
 ROOT = Path(__file__).resolve().parent
 
 
