@@ -16,11 +16,21 @@ def menu():
             pass
     print("\nVNA_readout 中文菜单\n自主 U 盘采集：请看 docs/U盘独立采集.md；本菜单是 Mac/PC 调试入口。")
     while True:
-        print("\n1 检查连接（只读）  2 单次采集  3 降温监测  4 暗测试\n5 查看/校验已有数据  6 离线演示  7 导入 U 盘  0 退出")
+        print("\n1 检查连接（只读）  2 单次采集  3 降温监测  4 暗测试\n5 查看/校验已有数据  6 离线演示  7 导入 U 盘\n8 首次降温准备（离线）  0 退出")
         choice = input("选择：").strip()
         if choice == "0":
             return
         try:
+            if choice == "8":
+                from commissioning import prepare
+                source = Path(input("设计 XLSX/CSV 路径：").strip().strip('"').strip("'")).expanduser()
+                site = input("现场表路径 [回车暂缺]：").strip()
+                print("默认搜索假设：频率 ±2%、QL 上限 10 万、1601 点、每线宽 8 个间隔。")
+                print("Q 上限不是表格中的 Qc；修改假设请使用 prepare 命令，见 docs/首次降温路线.md。")
+                directory = prepare(source, vna.ROOT / "data", site_path=site or None)
+                print("准备结果：", directory / "准备结果.md")
+                print("只生成计划，没有连接仪器；按 docs/现场交接.md 继续。")
+                continue
             if choice == "5":
                 from report import create_report
                 print("离线报告：", create_report(Path(input("实验目录：").strip()).expanduser()))
@@ -61,7 +71,7 @@ def menu():
                     serial=None, timeout=120, profile=path, out="data", allow_rf=True,
                     interval=interval, count=count, temperature_k=None, notes=input("实验备注：").strip())
             else:
-                print("请选择 0–7。")
+                print("请选择 0–8。")
                 continue
             directory = vna.run(args)
             if directory:

@@ -1,0 +1,12 @@
+{
+  "sample": "",
+  "input_loss_db": null,
+  "output_gain_db": null,
+  "source_power_dbm": null,
+  "max_source_power_dbm": null,
+  "chain_reviewed": false,
+  "temperature_source": "",
+  "design_q_kind": "unknown",
+  "operator": "",
+  "notes": "复制为 site.local.json 后填写。仅记录现场信息，不是可执行采集 profile。衰减/增益应附频率、温度、方向、元件清单和依据；不能只凭单一合计值批准整个频段。"
+}

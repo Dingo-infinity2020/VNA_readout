@@ -15,7 +15,7 @@ import time
 from datetime import datetime, timezone
 from uuid import uuid4
 
-VERSION = "0.2.2"
+VERSION = "0.3.0"
 ROOT = Path(__file__).resolve().parent
 
 
@@ -416,6 +416,8 @@ def main():
     parser.add_argument("--version", action="version", version=VERSION)
     sub = parser.add_subparsers(dest="command")
     sub.add_parser("menu", help="中文操作菜单")
+    from commissioning import add_parser
+    add_parser(sub)
     command = sub.add_parser("import-usb", help="Import a completed native VNA USB run (offline)")
     command.add_argument("directory", type=Path)
     command.add_argument("--out", default="data")
@@ -453,6 +455,9 @@ def main():
         if args.command in (None, "menu"):
             from menu import menu
             menu()
+        elif args.command == "prepare":
+            from commissioning import run as prepare_run
+            prepare_run(args)
         elif args.command in ("verify", "report"):
             from report import inspect_run, create_report
             if args.command == "verify":

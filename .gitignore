@@ -5,3 +5,6 @@ __pycache__/
 .DS_Store
 .venv/
 *.local.json
+private/
+graphify-out/
+.graphify-cache/
